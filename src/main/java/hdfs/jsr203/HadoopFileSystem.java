@@ -777,7 +777,11 @@ public class HadoopFileSystem extends FileSystem {
             if (!this.fs.exists(eSrc_path))
                 throw new NoSuchFileException(getString(src));
             if (eSrc.isDirectory()) {    // specification says to create dst directory
-                createDirectory(dst);
+				// This was previously implemented as:
+                // createDirectory(dst);
+				// but we changed it to:
+				org.apache.hadoop.fs.Path eDst_path = new HadoopPath(this, dst).getRawResolvedPath();
+				fs.rename(eSrc_path, eDst_path);
                 return;
             }
             boolean hasReplace = false;
