@@ -90,24 +90,120 @@ public class HadoopFileSystem extends FileSystem {
   private static final Set<String> supportedFileAttributeViews =
       Collections.unmodifiableSet(new HashSet<String>(Arrays.asList("basic", "hadoop", "owner", "posix")));
 
-	public HadoopFileSystem(FileSystemProvider provider, String host, int uriPort) throws IOException {
-		
+	public HadoopFileSystem(FileSystemProvider provider, String host, int uriPort, Map<String, ?> env) throws IOException {
+
 		this.provider = provider;
-		
-		int port = uriPort;
-		if (port == -1) {
-		  port = 8020; // Default Hadoop port
-		}
 
 		// Create dynamic configuration
-		Configuration conf = new Configuration();
-		conf.set("fs.defaultFS", "hdfs://" + host + ":" + port + "/");
+		Configuration conf = createConfigurationFrom(host, uriPort, env);
 
         this.fs = org.apache.hadoop.fs.FileSystem.get(conf);
-        
+
         this.userPrincipalLookupService = new HadoopUserPrincipalLookupService(this);
 	}
-	
+    private static Configuration createConfigurationFrom(String host, int uriPort, Map<String, ?> env) {
+        if (env == null) {
+            env = Collections.emptyMap();
+        }
+        String failoverProxyProvider = extractEnvValue(String.class, "dfs.client.failover.proxy.provider." + host, env, null, true);
+        if (failoverProxyProvider == null || failoverProxyProvider.isEmpty()) {
+            // non-ha
+            int port = uriPort;
+            if (port == -1) {
+                port = 8020; // Default Hadoop port
+            }
+
+            // non-ha config
+            Configuration conf = new Configuration();
+            conf.set("fs.defaultFS", "hdfs://" + host + ":" + port + "/");
+            return conf;
+        }
+        // ha config, detect the nameservice matching the host
+        Configuration conf = new Configuration();
+        conf.set("dfs.client.failover.proxy.provider." + host, failoverProxyProvider);
+
+        String nameServicesEnv = extractEnvValue(String.class, "dfs.nameservices", env, null, true);
+        String[] nameServices = nameServicesEnv != null && !nameServicesEnv.isEmpty() ? splitString(",", nameServicesEnv) : null;
+        if (nameServices == null || nameServices.length == 0) {
+            throw new IllegalArgumentException("Env specified an failover provider but no nameservice.");
+        }
+
+        conf.set("fs.defaultFS", "hdfs://" + host + "/");
+        conf.set("dfs.nameservices", nameServicesEnv);
+        boolean found = false;
+        for (String nameService : nameServices) {
+            if (nameService == null || nameService.isEmpty()) {
+                continue;
+            }
+            if (nameService.equals(host)) {
+                found = true;
+            }
+            String nameNodeIdsEnv = extractEnvValue(String.class, "dfs.ha.namenodes." + nameService, env, null, true);
+            String[] nameNodeIds = nameNodeIdsEnv != null && !nameNodeIdsEnv.isEmpty() ? splitString(",", nameNodeIdsEnv) : new String[0];
+            //noinspection ConstantConditions
+            if (nameNodeIds.length == 0) {
+                throw new IllegalArgumentException(String.format("No namenode ids given for nameservice id '%s'.", nameService));
+            }
+            conf.set("dfs.ha.namenodes." + nameService, nameNodeIdsEnv);
+
+            for (String nameNodeId : nameNodeIds) {
+                // a name node address should be given as URI
+                String nameNodeUri = extractEnvValue(String.class,
+                        "dfs.namenode.rpc-address." + nameService + "." + nameNodeId,
+                        env,
+                        null,
+                        true);
+                if (nameNodeUri == null || nameNodeUri.isEmpty()) {
+                    throw new IllegalArgumentException(String.format("Missing address for namenode id %s for nameservice %s", nameNodeId, nameService));
+                }
+                conf.set("dfs.namenode.rpc-address." + nameService + "." + nameNodeId, nameNodeUri);
+            }
+        }
+
+        if (!found) {
+            throw new IllegalArgumentException(String.format(
+                    "Given hostname '%s' should refer to a known name service id, but was not found among given ids '%s'",
+                    host,
+                    joinStrings(",", nameServices)));
+        }
+        // everything seems fine, return the config.
+        return conf;
+    }
+
+    private static String joinStrings(String delimiter, String... elems) {
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i < elems.length; ++i) {
+            if (i > 0) {
+                b.append(delimiter);
+            }
+            b.append(elems[i]);
+        }
+        return b.toString();
+    }
+
+    private static String[] splitString(String delimiter, String input) {
+        return input.split(Pattern.quote(delimiter));
+    }
+
+    private static <T> T extractEnvValue(Class<T> theClazz, String envName, Map<String, ?> env, T defaultValue, boolean failOnTypeMismatch) {
+        Object actual = env.get(envName);
+        if (actual == null) {
+            return defaultValue;
+        }
+        if (theClazz.isAssignableFrom(actual.getClass())) {
+            //noinspection unchecked
+            return (T) actual;
+        }
+        if (failOnTypeMismatch) {
+            throw new IllegalArgumentException(String.format("Env type %s for '%s' does not match expected type %s",
+                    actual.getClass(),
+                    envName,
+                    theClazz));
+        }
+        return null;
+    }
+
+
 	private final void beginWrite() {
 	        //rwlock.writeLock().lock();
 	    }

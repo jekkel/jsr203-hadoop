@@ -532,8 +532,8 @@ public class HadoopPath implements Path {
    * @return raw HDFS path object
    */
   public org.apache.hadoop.fs.Path getRawResolvedPath() {
-    return new org.apache.hadoop.fs.Path("hdfs://" + hdfs.getHost() + ":"
-        + hdfs.getPort() + new String(getResolvedPath()));
+    return new org.apache.hadoop.fs.Path("hdfs://" + hdfs.getHost()
+        + (hdfs.getPort() != -1 ? ":" +  hdfs.getPort() : "") + new String(getResolvedPath()));
   }
 
   void delete() throws IOException {

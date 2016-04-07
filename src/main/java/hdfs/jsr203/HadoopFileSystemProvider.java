@@ -162,7 +162,7 @@ public class HadoopFileSystemProvider extends FileSystemProvider {
   @Override
   public FileSystem newFileSystem(URI uri, Map<String, ?> env)
       throws IOException {
-    return new HadoopFileSystem(this, uri.getHost(), uri.getPort());
+    return new HadoopFileSystem(this, uri.getHost(), uri.getPort(), env);
   }
 
   @SuppressWarnings("unchecked")
