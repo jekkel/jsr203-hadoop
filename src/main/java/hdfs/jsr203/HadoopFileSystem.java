@@ -97,7 +97,8 @@ public class HadoopFileSystem extends FileSystem {
 		// Create dynamic configuration
 		Configuration conf = createConfigurationFrom(host, uriPort, env);
 
-        this.fs = org.apache.hadoop.fs.FileSystem.get(conf);
+        // don't use a shared instance since we close the DFS on close.
+        this.fs = org.apache.hadoop.fs.FileSystem.newInstance(conf);
 
         this.userPrincipalLookupService = new HadoopUserPrincipalLookupService(this);
 	}
