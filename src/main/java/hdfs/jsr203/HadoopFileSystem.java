@@ -107,6 +107,7 @@ public class HadoopFileSystem extends FileSystem {
             env = Collections.emptyMap();
         }
         String failoverProxyProvider = extractEnvValue(String.class, "dfs.client.failover.proxy.provider." + host, env, null, true);
+		String dfsDataNodeHostnames = extractEnvValue(String.class, "dfs.client.use.datanode.hostname", env, null, true);
         if (failoverProxyProvider == null || failoverProxyProvider.isEmpty()) {
             // non-ha
             int port = uriPort;
@@ -117,11 +118,17 @@ public class HadoopFileSystem extends FileSystem {
             // non-ha config
             Configuration conf = new Configuration();
             conf.set("fs.defaultFS", "hdfs://" + host + ":" + port + "/");
+			if(dfsDataNodeHostnames != null) {
+				conf.set("dfs.client.use.datanode.hostname", dfsDataNodeHostnames);
+			}
             return conf;
         }
         // ha config, detect the nameservice matching the host
         Configuration conf = new Configuration();
         conf.set("dfs.client.failover.proxy.provider." + host, failoverProxyProvider);
+		if(dfsDataNodeHostnames != null) {
+			conf.set("dfs.client.use.datanode.hostname", dfsDataNodeHostnames);
+		}
 
         String nameServicesEnv = extractEnvValue(String.class, "dfs.nameservices", env, null, true);
         String[] nameServices = nameServicesEnv != null && !nameServicesEnv.isEmpty() ? splitString(",", nameServicesEnv) : null;
