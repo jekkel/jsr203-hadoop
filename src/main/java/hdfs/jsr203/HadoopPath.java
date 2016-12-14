@@ -504,7 +504,7 @@ public class HadoopPath implements Path {
   @Override
   public URI toUri() throws IOError {
     try {
-      return new URI(HadoopFileSystemProvider.SCHEME, null, hdfs.getHost(),
+      return new URI(hdfs.getHDFS().getScheme(), null, hdfs.getHost(),
           hdfs.getPort(), toAbsolutePath().toString(), null, null);
     } catch (URISyntaxException e) {
       throw new IOError(e);
