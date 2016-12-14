@@ -94,87 +94,27 @@ public class HadoopFileSystem extends FileSystem {
 
 		this.provider = provider;
 
-		// Create dynamic configuration
-		Configuration conf = createConfigurationFrom(host, uriPort, env);
+		// Create configuration from env
+		Configuration conf = createConfigurationFrom(provider.getScheme(), host, uriPort, env);
 
         // don't use a shared instance since we close the DFS on close.
         this.fs = org.apache.hadoop.fs.FileSystem.newInstance(conf);
 
         this.userPrincipalLookupService = new HadoopUserPrincipalLookupService(this);
 	}
-    private static Configuration createConfigurationFrom(String host, int uriPort, Map<String, ?> env) {
+    private static Configuration createConfigurationFrom(String scheme, String host, int uriPort, Map<String, ?> env) {
         if (env == null) {
             env = Collections.emptyMap();
         }
-        String failoverProxyProvider = extractEnvValue(String.class, "dfs.client.failover.proxy.provider." + host, env, null, true);
-		String dfsDataNodeHostnames = extractEnvValue(String.class, "dfs.client.use.datanode.hostname", env, null, true);
-        if (failoverProxyProvider == null || failoverProxyProvider.isEmpty()) {
-            // non-ha
-            int port = uriPort;
-            if (port == -1) {
-                port = 8020; // Default Hadoop port
-            }
-
-            // non-ha config
-            Configuration conf = new Configuration();
-            conf.set("fs.defaultFS", "hdfs://" + host + ":" + port + "/");
-			if(dfsDataNodeHostnames != null) {
-				conf.set("dfs.client.use.datanode.hostname", dfsDataNodeHostnames);
-			}
-            return conf;
-        }
-        // ha config, detect the nameservice matching the host
+        // copy over 'env' as hadoop config
         Configuration conf = new Configuration();
-        conf.set("dfs.client.failover.proxy.provider." + host, failoverProxyProvider);
-		if(dfsDataNodeHostnames != null) {
-			conf.set("dfs.client.use.datanode.hostname", dfsDataNodeHostnames);
-		}
-
-        String nameServicesEnv = extractEnvValue(String.class, "dfs.nameservices", env, null, true);
-        String[] nameServices = nameServicesEnv != null && !nameServicesEnv.isEmpty() ? splitString(",", nameServicesEnv) : null;
-        if (nameServices == null || nameServices.length == 0) {
-            throw new IllegalArgumentException("Env specified an failover provider but no nameservice.");
+        for (Map.Entry<String, ?> envEntry : env.entrySet()) {
+            conf.set(envEntry.getKey(), envEntry.getValue().toString());
         }
-
-        conf.set("fs.defaultFS", "hdfs://" + host + "/");
-        conf.set("dfs.nameservices", nameServicesEnv);
-        boolean found = false;
-        for (String nameService : nameServices) {
-            if (nameService == null || nameService.isEmpty()) {
-                continue;
-            }
-            if (nameService.equals(host)) {
-                found = true;
-            }
-            String nameNodeIdsEnv = extractEnvValue(String.class, "dfs.ha.namenodes." + nameService, env, null, true);
-            String[] nameNodeIds = nameNodeIdsEnv != null && !nameNodeIdsEnv.isEmpty() ? splitString(",", nameNodeIdsEnv) : new String[0];
-            //noinspection ConstantConditions
-            if (nameNodeIds.length == 0) {
-                throw new IllegalArgumentException(String.format("No namenode ids given for nameservice id '%s'.", nameService));
-            }
-            conf.set("dfs.ha.namenodes." + nameService, nameNodeIdsEnv);
-
-            for (String nameNodeId : nameNodeIds) {
-                // a name node address should be given as URI
-                String nameNodeUri = extractEnvValue(String.class,
-                        "dfs.namenode.rpc-address." + nameService + "." + nameNodeId,
-                        env,
-                        null,
-                        true);
-                if (nameNodeUri == null || nameNodeUri.isEmpty()) {
-                    throw new IllegalArgumentException(String.format("Missing address for namenode id %s for nameservice %s", nameNodeId, nameService));
-                }
-                conf.set("dfs.namenode.rpc-address." + nameService + "." + nameNodeId, nameNodeUri);
-            }
+        if (!env.containsKey("fs.defaultFS")) {
+            // assume given URL points to defaultFS
+            conf.set("fs.defaultFS", scheme + "://" + host + (uriPort != -1 ? ":" + uriPort : "") + "/");
         }
-
-        if (!found) {
-            throw new IllegalArgumentException(String.format(
-                    "Given hostname '%s' should refer to a known name service id, but was not found among given ids '%s'",
-                    host,
-                    joinStrings(",", nameServices)));
-        }
-        // everything seems fine, return the config.
         return conf;
     }
 
