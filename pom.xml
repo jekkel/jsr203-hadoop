@@ -11,8 +11,6 @@
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 		<hadoop.version>2.9.2</hadoop.version>
-		<kiwigrid-snapshot-repository-url>${env.SNAPSHOT_REPOSITORY_URL}</kiwigrid-snapshot-repository-url>
-		<kiwigrid-release-repository-url>${env.RELEASE_REPOSITORY_URL}</kiwigrid-release-repository-url>
 	</properties>
 
 	<licenses>
@@ -42,12 +40,12 @@
 
 	<distributionManagement>
 		<snapshotRepository>
-			<id>kgmvn-snapshots</id>
-			<url>${kiwigrid-snapshot-repository-url}</url>
+			<id>ecs-maven-snapshots</id>
+			<url>https://repo.dev.kiwigrid.com/artifactory/ecs-maven-snapshots</url>
 		</snapshotRepository>
 		<repository>
-			<id>kgmvn-releases</id>
-			<url>${kiwigrid-release-repository-url}</url>
+			<id>ecs-maven-releases</id>
+			<url>https://repo.dev.kiwigrid.com/artifactory/ecs-maven-releases</url>
 		</repository>
 	</distributionManagement>
 
