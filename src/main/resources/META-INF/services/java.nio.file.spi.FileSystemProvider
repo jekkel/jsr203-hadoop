@@ -1,1 +1,5 @@
+hdfs.jsr203.AzureBlobStorageFileSystemProvider
+hdfs.jsr203.AzureBlobStorageSSLFileSystemProvider
+hdfs.jsr203.AzureDataLakeFileSystemProvider
 hdfs.jsr203.HadoopFileSystemProvider
+hdfs.jsr203.GoogleCloudStorageFileSystemProvider
