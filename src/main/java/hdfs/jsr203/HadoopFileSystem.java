@@ -15,80 +15,44 @@
  */
 package hdfs.jsr203;
 
-import static java.nio.file.StandardCopyOption.COPY_ATTRIBUTES;
-import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
-import static java.nio.file.StandardOpenOption.APPEND;
-import static java.nio.file.StandardOpenOption.CREATE;
-import static java.nio.file.StandardOpenOption.CREATE_NEW;
-import static java.nio.file.StandardOpenOption.READ;
-import static java.nio.file.StandardOpenOption.WRITE;
-
-import java.io.IOException;
-import java.io.OutputStream;
-import java.net.URISyntaxException;
-import java.nio.ByteBuffer;
-import java.nio.channels.Channels;
-import java.nio.channels.FileChannel;
-import java.nio.channels.NonWritableChannelException;
-import java.nio.channels.ReadableByteChannel;
-import java.nio.channels.SeekableByteChannel;
-import java.nio.channels.WritableByteChannel;
-import java.nio.file.AccessDeniedException;
-import java.nio.file.AccessMode;
-import java.nio.file.ClosedFileSystemException;
-import java.nio.file.CopyOption;
-import java.nio.file.DirectoryNotEmptyException;
-import java.nio.file.FileAlreadyExistsException;
-import java.nio.file.FileStore;
-import java.nio.file.FileSystem;
-import java.nio.file.LinkOption;
-import java.nio.file.NoSuchFileException;
-import java.nio.file.OpenOption;
-import java.nio.file.Path;
-import java.nio.file.PathMatcher;
-import java.nio.file.ReadOnlyFileSystemException;
-import java.nio.file.StandardOpenOption;
-import java.nio.file.WatchService;
-import java.nio.file.attribute.BasicFileAttributeView;
-import java.nio.file.attribute.FileAttribute;
-import java.nio.file.attribute.FileAttributeView;
-import java.nio.file.attribute.FileOwnerAttributeView;
-import java.nio.file.attribute.FileTime;
-import java.nio.file.attribute.PosixFileAttributeView;
-import java.nio.file.attribute.PosixFileAttributes;
-import java.nio.file.attribute.UserPrincipalLookupService;
-import java.nio.file.spi.FileSystemProvider;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.regex.Pattern;
-
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileUtil;
 
+import java.io.IOException;
+import java.io.OutputStream;
+import java.net.URISyntaxException;
+import java.nio.ByteBuffer;
+import java.nio.channels.*;
+import java.nio.file.*;
+import java.nio.file.attribute.*;
+import java.nio.file.spi.FileSystemProvider;
+import java.util.*;
+import java.util.regex.Pattern;
+
+import static java.nio.file.StandardCopyOption.COPY_ATTRIBUTES;
+import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
+import static java.nio.file.StandardOpenOption.*;
+
 public class HadoopFileSystem extends FileSystem {
 
   private static final String GLOB_SYNTAX = "glob";
   private static final String REGEX_SYNTAX = "regex";
 
-	private org.apache.hadoop.fs.FileSystem fs;
-	private FileSystemProvider provider;
+  private static final String ENV_PREFIX_ENV_VARIABLE = "JSR203_HADOOP_ENV_PREFIX";
+
+	private final org.apache.hadoop.fs.FileSystem fs;
+	private final FileSystemProvider provider;
 	private boolean readOnly;
 	private volatile boolean isOpen = true;
-	private UserPrincipalLookupService userPrincipalLookupService;
+	private final UserPrincipalLookupService userPrincipalLookupService;
     private int hashcode = 0;  // cached hash code (created lazily)
 
 
   private static final Set<String> supportedFileAttributeViews =
-      Collections.unmodifiableSet(new HashSet<String>(Arrays.asList("basic", "hadoop", "owner", "posix")));
+      Collections.unmodifiableSet(new HashSet<>(Arrays.asList("basic", "hadoop", "owner", "posix")));
 
 	public HadoopFileSystem(FileSystemProvider provider, String host, int uriPort, Map<String, ?> env) throws IOException {
 
@@ -106,53 +70,38 @@ public class HadoopFileSystem extends FileSystem {
         if (env == null) {
             env = Collections.emptyMap();
         }
-        // copy over 'env' as hadoop config
         Configuration conf = new Configuration();
-        for (Map.Entry<String, ?> envEntry : env.entrySet()) {
-            conf.set(envEntry.getKey(), envEntry.getValue().toString());
-        }
-        if (!env.containsKey("fs.defaultFS")) {
-            // assume given URL points to defaultFS
-            conf.set("fs.defaultFS", scheme + "://" + host + (uriPort != -1 ? ":" + uriPort : "") + "/");
-        }
+        applyEnvToConfigurationWithFallbackDefaultFs(env, conf, scheme + "://" + host + (uriPort != -1 ? ":" + uriPort : "") + "/");
         return conf;
     }
 
-    private static String joinStrings(String delimiter, String... elems) {
-        StringBuilder b = new StringBuilder();
-        for (int i = 0; i < elems.length; ++i) {
-            if (i > 0) {
-                b.append(delimiter);
+    private static void applyEnvToConfigurationWithFallbackDefaultFs(Map<String,?> env, Configuration conf, String fallbackDefaultFs) {
+        String prefix;
+	    if (env.containsKey(ENV_PREFIX_ENV_VARIABLE)) {
+	        prefix = env.get(ENV_PREFIX_ENV_VARIABLE).toString();
+        } else {
+	        prefix = "";
+        }
+        boolean defaultFsConfigured = false;
+        for (Map.Entry<String, ?> entry : env.entrySet()) {
+            String key = entry.getKey();
+            Object value = entry.getValue();
+            if (key.startsWith(prefix)) {
+                String hadoopKey = key.substring(prefix.length());
+                if (hadoopKey.equals("fs.defaultFS")) {
+                    defaultFsConfigured = true;
+                }
+                conf.set(hadoopKey, value.toString());
             }
-            b.append(elems[i]);
         }
-        return b.toString();
-    }
-
-    private static String[] splitString(String delimiter, String input) {
-        return input.split(Pattern.quote(delimiter));
-    }
-
-    private static <T> T extractEnvValue(Class<T> theClazz, String envName, Map<String, ?> env, T defaultValue, boolean failOnTypeMismatch) {
-        Object actual = env.get(envName);
-        if (actual == null) {
-            return defaultValue;
+        if (!defaultFsConfigured) {
+            // assume given URL points to defaultFS
+            conf.set("fs.defaultFS", fallbackDefaultFs);
         }
-        if (theClazz.isAssignableFrom(actual.getClass())) {
-            //noinspection unchecked
-            return (T) actual;
-        }
-        if (failOnTypeMismatch) {
-            throw new IllegalArgumentException(String.format("Env type %s for '%s' does not match expected type %s",
-                    actual.getClass(),
-                    envName,
-                    theClazz));
-        }
-        return null;
     }
 
 
-	private final void beginWrite() {
+    private final void beginWrite() {
 	        //rwlock.writeLock().lock();
 	    }
 

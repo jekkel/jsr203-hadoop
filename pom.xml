@@ -3,7 +3,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>com.kiwigrid</groupId>
 	<artifactId>jsr203hadoop</artifactId>
-	<version>1.0.2-KG5</version>
+	<version>1.0.2-KG6</version>
 	<name>jsr203hadoop</name>
 	<description>A Java NIO file system provider for HDFS</description>
 	<url>https://github.com/damiencarol/jsr203-hadoop</url>
@@ -69,8 +69,8 @@
 				<artifactId>maven-compiler-plugin</artifactId>
 				<version>3.5.1</version>
 				<configuration>
-					<source>1.7</source>
-					<target>1.7</target>
+					<source>1.8</source>
+					<target>1.8</target>
 				</configuration>
 			</plugin>
 			<plugin>
@@ -112,7 +112,6 @@
 					</execution>
 				</executions>
 				<configuration>
-					<excludeSubprojects>false</excludeSubprojects>
 					<excludes>
 						<exclude>build/**</exclude>
 						<exclude>src/main/resources/**</exclude>
