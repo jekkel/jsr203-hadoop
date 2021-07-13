@@ -15,31 +15,23 @@
  */
 package hdfs.jsr203;
 
+import org.apache.hadoop.fs.PathFilter;
+
 import java.io.IOException;
 import java.net.URI;
+import java.nio.channels.AsynchronousFileChannel;
 import java.nio.channels.FileChannel;
 import java.nio.channels.SeekableByteChannel;
-import java.nio.file.AccessMode;
-import java.nio.file.CopyOption;
-import java.nio.file.DirectoryStream;
+import java.nio.file.*;
 import java.nio.file.DirectoryStream.Filter;
-import java.nio.file.FileStore;
-import java.nio.file.FileSystem;
-import java.nio.file.FileSystemNotFoundException;
-import java.nio.file.LinkOption;
-import java.nio.file.OpenOption;
-import java.nio.file.Path;
-import java.nio.file.ProviderMismatchException;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileAttribute;
 import java.nio.file.attribute.FileAttributeView;
 import java.nio.file.attribute.PosixFileAttributes;
 import java.nio.file.spi.FileSystemProvider;
-import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
-
-import org.apache.hadoop.fs.PathFilter;
+import java.util.concurrent.ExecutorService;
 
 /**
  * {@link FileSystemProvider} implementation for HDFS.
@@ -48,19 +40,17 @@ import org.apache.hadoop.fs.PathFilter;
  */
 public class HadoopFileSystemProvider extends FileSystemProvider {
 
-  public static final String SCHEME = "hdfs";
+  static final String SCHEME = "hdfs";
 
   // Copy-cat of
   // org.apache.hadoop.mapreduce.lib.input.FileInputFormat.hiddenFileFilter
-  private static final PathFilter HIDDEN_FILE_FILTER = new PathFilter() {
-    public boolean accept(org.apache.hadoop.fs.Path p) {
-      String name = p.getName();
-      return !name.startsWith("_") && !name.startsWith(".");
-    }
+  private static final PathFilter HIDDEN_FILE_FILTER = p -> {
+    String name = p.getName();
+    return !name.startsWith("_") && !name.startsWith(".");
   };
 
   // Checks that the given file is a HadoopPath
-  private static final HadoopPath toHadoopPath(Path path) {
+  private static HadoopPath toHadoopPath(Path path) {
     if (path == null) {
       throw new NullPointerException();
     }
@@ -107,7 +97,7 @@ public class HadoopFileSystemProvider extends FileSystemProvider {
   @Override
   public FileSystem getFileSystem(URI uri) {
     try {
-      return newFileSystem(uri, Collections.<String, Object>emptyMap());
+      return newFileSystem(uri, System.getenv());
     } catch (IOException e) {
       throw new FileSystemNotFoundException(e.getMessage());
     }
@@ -124,12 +114,12 @@ public class HadoopFileSystemProvider extends FileSystemProvider {
   }
 
   @Override
-  public boolean isHidden(Path path) throws IOException {
+  public boolean isHidden(Path path) {
     return !HIDDEN_FILE_FILTER.accept(toHadoopPath(path).getRawResolvedPath());
   }
 
   @Override
-  public boolean isSameFile(Path path, Path path2) throws IOException {
+  public boolean isSameFile(Path path, Path path2) {
     return toHadoopPath(path).compareTo(toHadoopPath(path2)) == 0;
   }
 
@@ -181,6 +171,11 @@ public class HadoopFileSystemProvider extends FileSystemProvider {
     }
 
     throw new UnsupportedOperationException("readAttributes:" + type.getName());
+  }
+
+  @Override
+  public AsynchronousFileChannel newAsynchronousFileChannel(Path path, Set<? extends OpenOption> options, ExecutorService executor, FileAttribute<?>... attrs) throws IOException {
+    return new HadoopAsynchronousFileChannelImpl(path, options, executor, attrs);
   }
 
   @Override
